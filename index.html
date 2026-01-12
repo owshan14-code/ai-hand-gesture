@@ -1,0 +1,2634 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>神秘塔罗占卜 | Mystic Tarot Reader</title>
+    
+    <!-- 加载库文件 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Cormorant+Garamond:wght@400;600&family=Noto+Serif+SC:wght@400;700&display=swap');
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #0b0500;
+            font-family: 'Cormorant Garamond', 'Noto Serif SC', serif;
+            color: #d4af37;
+            user-select: none;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjMGIwNTAwIi8+CjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiMxYTA5MDAiIG9wYWNpdHk9IjAuMSIvPgo8L3N2Zz4=');
+        }
+
+        /* 呼吸动画定义 (亮 -> 暗 -> 亮) */
+        @keyframes val-flash {
+            0%, 100% { 
+                opacity: 1; 
+                filter: drop-shadow(0 0 20px rgba(255, 223, 128, 0.8)) brightness(1.3); 
+                transform: translateX(-50%) scale(1.02);
+            }
+            50% { 
+                opacity: 0.6; 
+                filter: drop-shadow(0 0 5px rgba(138, 109, 59, 0.5)) brightness(0.7); 
+                transform: translateX(-50%) scale(0.98);
+            }
+        }
+
+        /* VALORANT Title 样式 */
+        #valorant-title {
+            position: absolute;
+            top: 15%; 
+            left: 50%;
+            transform: translateX(-50%);
+            font-family: 'Cinzel', serif;
+            font-size: 3rem; 
+            font-weight: 700;
+            letter-spacing: 10px; 
+            color: #ffdf80;
+            background: linear-gradient(180deg, #ffdf80 0%, #8a6d3b 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 5px 15px rgba(0,0,0,0.8);
+            z-index: 5;
+            pointer-events: none;
+            opacity: 1;
+            /* 0.8秒流畅动画，包含透明度、变换和模糊滤镜 */
+            transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1), 
+                        transform 0.8s cubic-bezier(0.4, 0, 0.2, 1),
+                        filter 0.8s ease;
+            filter: drop-shadow(0 0 10px rgba(212, 175, 55, 0.3)) blur(0px);
+        }
+        
+        #valorant-title.hidden {
+            opacity: 0;
+            transform: translateX(-50%) scale(1.15); 
+            filter: drop-shadow(0 0 0px rgba(212, 175, 55, 0)) blur(8px);
+        }
+
+        /* 激活用呼吸类 */
+        #valorant-title.flashing {
+            animation: val-flash 2.0s infinite ease-in-out; /* 2秒平滑呼吸 */
+        }
+
+        .ui-panel {
+            position: absolute;
+            background: rgba(20, 10, 5, 0.85);
+            border: 2px solid #8a6d3b;
+            padding: 20px;
+            z-index: 10;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8), inset 0 0 30px rgba(0,0,0,0.5);
+            border-radius: 4px;
+            transition: all 0.5s ease; /* 增加过渡时间，使隐藏更平滑 */
+        }
+
+        .ui-panel::before, .ui-panel::after {
+            content: '';
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border: 2px solid #d4af37;
+            transition: all 0.3s;
+            pointer-events: none;
+        }
+        .ui-panel::before { top: 4px; left: 4px; border-right: none; border-bottom: none; }
+        .ui-panel::after { bottom: 4px; right: 4px; border-left: none; border-top: none; }
+
+        #status-bar::before, #status-bar::after { display: none; }
+
+        .ui-title {
+            font-family: 'Cinzel', 'Noto Serif SC', serif;
+            font-size: 1.4rem;
+            color: #d4af37;
+            border-bottom: 1px solid #5a4020;
+            margin-bottom: 15px;
+            padding-bottom: 8px;
+            text-align: center;
+            letter-spacing: 3px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        #instructions {
+            top: 30px;
+            left: 30px;
+            width: 300px; 
+            transform: scale(0.4); 
+            transform-origin: top left;
+        }
+
+        .gesture-item {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            font-size: 1.1rem;
+            color: #8a6d3b;
+            transition: color 0.3s;
+        }
+        
+        .gesture-item.active {
+            color: #ffdf80;
+            text-shadow: 0 0 10px #d4af37;
+        }
+
+        .gesture-icon {
+            width: 30px;
+            height: 30px;
+            margin-right: 15px;
+            border: 1px solid #5a4020;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #0f0805;
+            border-radius: 50%;
+            font-size: 0.8em;
+        }
+
+        #cam-container {
+            top: 30px;
+            right: 30px;
+            width: 260px;
+            display: flex;
+            flex-direction: column;
+            border-color: #5a4020;
+            transform: scale(0.6); 
+            transform-origin: top right;
+            overflow: hidden; 
+        }
+        
+        #cam-container.minimized {
+            width: 50px; 
+            height: 50px; 
+            background: transparent;
+            border-color: transparent;
+            box-shadow: none;
+            padding: 0;
+            align-items: flex-end; 
+        }
+
+        #cam-container.minimized::before, 
+        #cam-container.minimized::after { opacity: 0; }
+
+        #cam-container.minimized .ui-title {
+            border-bottom: none;
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            justify-content: flex-end; 
+            height: 100%;
+        }
+
+        #cam-container.minimized .ui-title span { display: none; }
+        #cam-container.minimized #cam-content { display: none; }
+
+        .ui-toggle-btn {
+            cursor: pointer;
+            font-size: 1.5em; 
+            padding: 5px;
+            border: 1px solid #5a4020;
+            border-radius: 50%; 
+            background: rgba(20, 10, 5, 0.9);
+            color: #8a6d3b;
+            transition: all 0.2s;
+            pointer-events: auto; 
+            width: 40px;
+            height: 40px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .ui-toggle-btn:hover {
+            color: #d4af37;
+            border-color: #d4af37;
+            background: rgba(212, 175, 55, 0.2);
+            box-shadow: 0 0 10px #d4af37;
+        }
+
+        #cam-content {
+            width: 100%;
+            height: 195px; 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #webcam-video { display: none; }
+        
+        #webcam-canvas {
+            width: 100%;
+            height: 100%;
+            transform: scaleX(-1);
+            opacity: 0.6;
+            border: 1px solid #332211;
+            filter: sepia(0.8) contrast(1.2); 
+        }
+
+        /* 系统控制栏 (全屏/隐藏UI) */
+        .system-controls {
+            position: absolute;
+            top: 30px;
+            right: 300px; /* 放在摄像头左侧，避免重叠 */
+            display: flex;
+            gap: 15px;
+            z-index: 50;
+        }
+        
+        /* 沉浸模式样式：隐藏大部分UI */
+        body.zen-mode .ui-panel,
+        body.zen-mode .left-controls,
+        body.zen-mode .right-controls,
+        body.zen-mode #status-bar,
+        body.zen-mode #cam-container {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            transform: scale(0.95); /* 增加一点缩小动画效果 */
+        }
+        
+        /* 确保系统按钮在沉浸模式下依然可见，但稍微透明 */
+        body.zen-mode .system-controls {
+            opacity: 0.6;
+            transition: opacity 0.3s;
+        }
+        body.zen-mode .system-controls:hover {
+            opacity: 1.0;
+        }
+
+        /* 左侧控制区：调整与配置 */
+        .left-controls {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 20;
+            align-items: flex-start;
+            width: 190px;
+            transition: all 0.5s ease;
+        }
+
+        /* 右侧控制区：素材与名录 - 保持在右下角 */
+        .right-controls {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 20;
+            width: 190px;
+            transition: all 0.5s ease;
+        }
+
+        .control-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            width: 100%;
+        }
+        
+        /* 针对不同容器的对齐方式 */
+        .left-controls .control-row { 
+            justify-content: space-between; 
+        }
+        .right-controls .control-row { 
+            justify-content: center; 
+        }
+
+        .upload-btn {
+            padding: 8px 15px;
+            cursor: pointer;
+            text-align: center;
+            font-size: 0.9rem;
+            color: #d4af37;
+            background: rgba(20, 10, 5, 0.85);
+            border: 2px solid #8a6d3b;
+            transition: all 0.2s;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            position: relative;
+            min-width: 120px;
+            white-space: nowrap;
+            box-sizing: border-box; 
+        }
+        
+        /* 让右侧按钮填满容器宽度 */
+        .right-controls .upload-btn {
+            width: 100%;
+        }
+
+        .upload-btn:hover {
+            background: rgba(40, 25, 10, 0.9);
+            color: #ffdf80;
+            box-shadow: 0 0 15px #d4af37;
+        }
+        
+        /* 次级按钮样式 (保存/读取) */
+        .upload-btn.secondary {
+            border-color: #5a4020;
+            background: rgba(15, 8, 4, 0.85);
+            font-size: 0.85rem;
+            min-width: 0; 
+            flex: 1; 
+            padding: 8px 0; 
+        }
+        .upload-btn.secondary:hover {
+            border-color: #d4af37;
+            background: rgba(30, 15, 8, 0.9);
+        }
+
+        .scale-control {
+            background: rgba(20, 10, 5, 0.85);
+            border: 2px solid #8a6d3b;
+            padding: 5px 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #d4af37;
+            font-family: 'Cinzel', serif;
+            font-size: 0.8rem;
+            width: 100%;
+            box-sizing: border-box;
+            justify-content: space-between;
+        }
+        
+        .scale-control span { min-width: 50px; }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%; 
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 14px;
+            width: 14px;
+            border-radius: 50%;
+            background: #d4af37;
+            cursor: pointer;
+            margin-top: -5px;
+            box-shadow: 0 0 5px #d4af37;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #5a4020;
+            border-radius: 2px;
+        }
+
+        #status-bar {
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            min-width: 350px; 
+            border: none;
+            background: transparent;
+            box-shadow: none;
+            pointer-events: none;
+            transition: all 0.5s ease;
+        }
+
+        #status-text {
+            font-family: 'Cinzel', serif;
+            font-size: 1.8rem; 
+            color: #ffdf80;
+            margin-bottom: 5px;
+            text-shadow: 0 2px 10px rgba(0,0,0,1);
+            letter-spacing: 2px;
+        }
+
+        #progress-bar-bg {
+            width: 50%; 
+            margin: 0 auto; 
+            height: 2px; 
+            background: #2a1a10;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #progress-bar-fill {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #45361d, #6a571b, #45361d);
+            box-shadow: 0 0 8px rgba(106, 87, 27, 0.5);
+            transition: width 0.1s linear;
+        }
+
+        /* 命运石板样式 */
+        #registry-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 50;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(5px);
+        }
+        #registry-overlay.active { display: flex; }
+        
+        #registry-panel {
+            width: 700px;
+            max-width: 95%;
+            max-height: 90%;
+            overflow-y: auto;
+            position: relative;
+            background: rgba(20, 10, 5, 0.95);
+            border: 2px solid #8a6d3b;
+            padding: 20px;
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .registry-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #5a4020;
+        }
+
+        .registry-card {
+            border: 1px solid #5a4020;
+            padding: 15px 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            background: rgba(0,0,0,0.3);
+            border-radius: 4px;
+        }
+        .registry-card:hover {
+            background: rgba(212, 175, 55, 0.1);
+            border-color: #d4af37;
+        }
+        .registry-card.active {
+            border-color: #d4af37;
+            box-shadow: 0 0 15px #d4af37;
+            background: rgba(212, 175, 55, 0.2);
+        }
+        .registry-card.custom {
+            border-color: #00ffcc;
+            box-shadow: 0 0 5px rgba(0, 255, 204, 0.3);
+        }
+        .registry-icon {
+            font-size: 2rem;
+            margin-bottom: 5px;
+            color: #8a6d3b;
+        }
+        .registry-name {
+            font-size: 0.8rem;
+            color: #aaa;
+            font-family: 'Cinzel', serif;
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            position: absolute;
+            top: 5px; right: 5px;
+            background: #333;
+        }
+        .registry-card.custom .status-dot {
+            background: #00ffcc; 
+            box-shadow: 0 0 8px #00ffcc;
+        }
+        .registry-close {
+            position: absolute;
+            top: 10px; right: 20px;
+            font-size: 2rem;
+            cursor: pointer;
+            color: #d4af37;
+            font-family: sans-serif;
+        }
+        .registry-close:hover {
+            color: #ffdf80;
+        }
+
+        /* 编辑器样式 */
+        #registry-editor {
+            margin-top: 20px;
+            padding-top: 10px;
+            display: none; 
+            flex-direction: column;
+            gap: 15px;
+            color: #d4af37;
+        }
+        #registry-editor.active {
+            display: flex;
+        }
+        .editor-section-title {
+            font-family: 'Cinzel', serif;
+            font-size: 1.1rem;
+            border-left: 3px solid #d4af37;
+            padding-left: 10px;
+            margin-bottom: 5px;
+        }
+        .editor-row {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .editor-label {
+            font-size: 0.9rem;
+            color: #aaa;
+        }
+        .editor-input {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid #5a4020;
+            color: #ffdf80;
+            padding: 10px;
+            font-family: 'Cormorant Garamond', 'Noto Serif SC', serif;
+            font-size: 1rem;
+            resize: vertical;
+            border-radius: 4px;
+        }
+        .editor-input:focus {
+            outline: none;
+            border-color: #d4af37;
+            box-shadow: 0 0 5px rgba(212, 175, 55, 0.3);
+        }
+        .file-input-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .audio-status {
+            font-size: 0.8rem;
+            color: #00ffcc;
+            display: none;
+        }
+        .audio-status.visible { display: inline; }
+
+        /* 神谕容器 - 改为全屏宽度的 Flex 容器，用于左右分布 */
+        #oracle-container {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            width: 100%;
+            transform: translateY(-50%);
+            z-index: 5;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 1.5s ease;
+            
+            /* Flex 布局：两端对齐，垂直居中 */
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            
+            /* 移除原本的统一背景和边框 */
+            background: none;
+            padding: 0;
+            border: none;
+        }
+        
+        #oracle-container.visible {
+            opacity: 1;
+        }
+
+        /* 卡牌名称 - 左侧样式 */
+        #oracle-title {
+            font-family: 'Cinzel', 'Noto Serif SC', serif;
+            font-size: 2.8rem;
+            color: #fff;
+            text-shadow: 0 0 20px #ffcc00;
+            letter-spacing: 3px;
+            font-weight: 700;
+            
+            /* 移除背景薄雾 */
+            background: none;
+            padding: 20px 40px;
+            border-left: 5px solid #d4af37;
+            margin: 0; /* 清除默认外边距 */
+            text-align: left;
+            max-width: 35vw;
+        }
+
+        /* 神谕内容 - 右侧样式 */
+        #oracle-text {
+            font-family: 'Cormorant Garamond', 'Noto Serif SC', serif;
+            font-size: 1.6rem;
+            color: #d4af37;
+            font-style: italic;
+            text-shadow: 0 3px 8px #000;
+            line-height: 1.6;
+
+            /* 移除背景薄雾 */
+            background: none;
+            padding: 20px 40px;
+            border-right: 5px solid #d4af37;
+            text-align: right;
+            max-width: 35vw;
+        }
+
+        #loader {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #0b0500;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #8a6d3b;
+            font-family: 'Cinzel', serif;
+        }
+        
+        .spinner {
+            width: 60px;
+            height: 60px;
+            border: 2px solid #332211;
+            border-top: 2px solid #d4af37;
+            border-radius: 50%;
+            animation: spin 2s linear infinite;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .hidden { opacity: 0; pointer-events: none; transition: opacity 0.8s; }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+    
+    <div id="valorant-title">VALORANT</div>
+
+    <!-- 系统控制栏：全屏与沉浸模式 -->
+    <div class="system-controls">
+        <div class="ui-toggle-btn" id="fullscreen-btn" title="全屏 (Full Screen)">⛶</div>
+        <div class="ui-toggle-btn" id="hide-ui-btn" title="沉浸模式 (Zen Mode)">✨</div>
+    </div>
+
+    <!-- UI 面板 -->
+    <div id="instructions" class="ui-panel">
+        <div class="ui-title">仪式指引</div>
+        <div class="gesture-item" id="g-open"><div class="gesture-icon">✋</div><span>五指：巡视命运之轮</span></div>
+        <div class="gesture-item" id="g-one"><div class="gesture-icon">☝️</div><span>单指：星尘指引 (光照)</span></div>
+        <div class="gesture-item" id="g-fist"><div class="gesture-icon">✊</div><span>握拳：显现真理 (翻牌)</span></div>
+        <div class="gesture-item" id="g-gun"><div class="gesture-icon">👉</div><span>手枪：尘归尘 (消散)</span></div>
+    </div>
+
+    <div id="cam-container" class="ui-panel">
+        <div class="ui-title">
+            <span>灵视</span>
+            <div class="ui-toggle-btn" id="cam-toggle-btn" title="Toggle View">👁️</div>
+        </div>
+        <div id="cam-content">
+            <video id="webcam-video"></video>
+            <canvas id="webcam-canvas"></canvas>
+        </div>
+    </div>
+
+    <!-- 命运石板 -->
+    <div id="registry-overlay">
+        <div id="registry-panel" class="ui-panel">
+            <div class="ui-title">命运石板 (Card Registry)</div>
+            <div class="registry-close" id="registry-close">×</div>
+            <div class="registry-grid" id="registry-grid"></div>
+            
+            <!-- 新增编辑器区域 -->
+            <div id="registry-editor">
+                <div class="editor-section-title">编辑神谕 (Oracle Editor)</div>
+                <div class="editor-row">
+                    <label class="editor-label">卡牌名称 (Card Name):</label>
+                    <input type="text" id="editor-card-name-input" class="editor-input">
+                </div>
+                <div class="editor-row">
+                    <label class="editor-label">神谕内容 (Prophecy Text):</label>
+                    <textarea id="editor-prophecy-input" class="editor-input" rows="3"></textarea>
+                </div>
+                <!-- 预言翻牌音频 -->
+                <div class="editor-row">
+                    <label class="editor-label">显现/翻牌音频 (Reveal Audio - Fist):</label>
+                    <div class="file-input-wrapper">
+                        <div id="upload-audio-btn" class="upload-btn" style="min-width:auto; padding:5px 15px;">🎵 上传</div>
+                        <span id="audio-status-text" class="audio-status">已包含</span>
+                        <div id="clear-audio-btn" class="upload-btn" style="min-width:auto; padding:5px 10px; background:rgba(50,10,10,0.8); display:none;">🗑️</div>
+                    </div>
+                    <input type="file" id="editor-audio-input" accept="audio/*" style="display: none;">
+                </div>
+                <!-- 指引音频 -->
+                <div class="editor-row">
+                    <label class="editor-label">指引音频 (Guide Audio - One Finger):</label>
+                    <div class="file-input-wrapper">
+                        <div id="upload-guide-audio-btn" class="upload-btn" style="min-width:auto; padding:5px 15px;">🎵 上传</div>
+                        <span id="guide-audio-status-text" class="audio-status">已包含</span>
+                        <div id="clear-guide-audio-btn" class="upload-btn" style="min-width:auto; padding:5px 10px; background:rgba(50,10,10,0.8); display:none;">🗑️</div>
+                    </div>
+                    <input type="file" id="editor-guide-audio-input" accept="audio/*" style="display: none;">
+                </div>
+                <!-- 消散音频 -->
+                <div class="editor-row">
+                    <label class="editor-label">消散音频 (Dissolve Audio - Gun):</label>
+                    <div class="file-input-wrapper">
+                        <div id="upload-dissolve-audio-btn" class="upload-btn" style="min-width:auto; padding:5px 15px;">🎵 上传</div>
+                        <span id="dissolve-audio-status-text" class="audio-status">已包含</span>
+                        <div id="clear-dissolve-audio-btn" class="upload-btn" style="min-width:auto; padding:5px 10px; background:rgba(50,10,10,0.8); display:none;">🗑️</div>
+                    </div>
+                    <input type="file" id="editor-dissolve-audio-input" accept="audio/*" style="display: none;">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 神谕展示区域 -->
+    <div id="oracle-container">
+        <div id="oracle-title">THE SUN</div>
+        <div id="oracle-text">"Success, radiance, and abundance follow you."</div>
+    </div>
+
+    <!-- 左下角控制面板: 调整与配置 -->
+    <div class="left-controls">
+        <div class="scale-control" title="Adjust image size">
+            <span>ZOOM</span>
+            <input type="range" id="scale-slider" min="0.5" max="2.0" step="0.05" value="1.0">
+        </div>
+        <div class="scale-control" title="Adjust image horizontal position">
+            <span>POS X</span>
+            <input type="range" id="pos-x-slider" min="-300" max="300" step="10" value="0">
+        </div>
+        <div class="scale-control" title="Adjust image vertical position">
+            <span>POS Y</span>
+            <input type="range" id="pos-y-slider" min="-300" max="300" step="10" value="0">
+        </div>
+        
+        <div class="control-row">
+            <div id="load-config-btn" class="upload-btn secondary">📂 读取配置</div>
+            <div id="save-config-btn" class="upload-btn secondary">💾 保存配置</div>
+        </div>
+        <input type="file" id="config-upload-input" accept=".json" style="display: none;">
+    </div>
+
+    <!-- 右下角控制面板: 素材与名录 -->
+    <div class="right-controls">
+        <div class="control-row">
+            <div id="registry-btn" class="upload-btn">📜 查看名录</div>
+        </div>
+        <div class="control-row">
+            <div id="upload-front-btn" class="upload-btn">🖼️ 注入灵魂 (正面)</div>
+        </div>
+        <div class="control-row">
+            <div id="upload-back-btn" class="upload-btn" title="Upload image for ALL card backs">🌹 定制结界 (背面)</div>
+        </div>
+    </div>
+    <input type="file" id="image-upload-front" accept="image/*" style="display: none;">
+    <input type="file" id="image-upload-back" accept="image/*" style="display: none;">
+
+    <!-- 新增：自定义密码输入模态框 -->
+    <div id="password-modal" class="ui-panel" style="display: none; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1000; flex-direction: column; gap: 15px; min-width: 300px;">
+        <div class="ui-title">输入密钥 (Enter Key)</div>
+        <input type="password" id="password-input" class="editor-input" placeholder="请输入密钥...">
+        <div class="control-row" style="justify-content: flex-end;">
+            <div id="password-cancel-btn" class="upload-btn secondary">取消</div>
+            <div id="password-confirm-btn" class="upload-btn">确认</div>
+        </div>
+    </div>
+
+    <div id="status-bar" class="ui-panel">
+        <div id="status-text">WAITING FOR THE SIGN...</div>
+        <div id="progress-bar-bg"><div id="progress-bar-fill"></div></div>
+    </div>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <p style="margin-top:20px; letter-spacing: 2px;">AWAKENING SPIRITS...</p>
+    </div>
+
+    <!-- 着色器：背面卡牌 -->
+    <script type="x-shader/x-fragment" id="fragmentShaderBack">
+        uniform float uTime;
+        uniform float uBrightness; 
+        uniform sampler2D uBackTexture; 
+        uniform float uUseBackTexture;  
+        varying vec2 vUv;
+
+        float random(vec2 st) {
+            return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+        }
+
+        void main() {
+            if (uUseBackTexture > 0.5) {
+                vec4 texColor = texture2D(uBackTexture, vUv);
+                gl_FragColor = vec4(texColor.rgb * uBrightness, 1.0);
+                return;
+            }
+
+            vec2 center = vec2(0.5, 0.5);
+            vec2 uv = vUv;
+            uv.y = (vUv.y - 0.5) * 1.75 + 0.5;
+            vec2 pos = uv - center;
+            float r = length(pos);
+            float angle = atan(pos.y, pos.x);
+
+            vec3 bg = vec3(0.05, 0.0, 0.01);
+            vec3 color = bg;
+            vec3 gold = vec3(0.83, 0.68, 0.21);
+
+            float basePetal = cos(angle * 6.0);
+            float crinkle = sin(angle * 40.0 + r * 10.0);
+            float petalRadius = 0.15 + 0.08 * basePetal + 0.01 * crinkle;
+            float distToPetal = abs(r - petalRadius);
+            float petalOutline = smoothstep(0.005, 0.001, distToPetal);
+            petalOutline *= smoothstep(0.02, 0.08, r);
+
+            float twist = angle + 0.3 * sin(r * 5.0 - uTime * 0.5);
+            float filaments = abs(sin(twist * 6.0));
+            float filamentLine = smoothstep(0.02, 0.005, filaments);
+            float filamentMask = smoothstep(0.05, 0.1, r) * smoothstep(0.42, 0.35, r);
+            
+            float tip = filamentLine * smoothstep(0.38, 0.4, r) * smoothstep(0.42, 0.4, r);
+            float core = smoothstep(0.008, 0.002, abs(r - 0.06));
+
+            color += gold * petalOutline; 
+            color += gold * filamentLine * filamentMask * 0.8; 
+            color += gold * tip * 2.0; 
+            color += gold * core; 
+
+            float borderDistX = min(vUv.x, 1.0 - vUv.x);
+            float borderDistY = min(vUv.y, 1.0 - vUv.y);
+            float borderDist = min(borderDistX, borderDistY);
+            
+            float borderLine = step(0.03, borderDist) * step(borderDist, 0.04) + 
+                               step(0.01, borderDist) * step(borderDist, 0.015);
+            color = mix(color, gold, borderLine);
+
+            if (borderDist > 0.05 && borderDist < 0.15) {
+                 if (abs(uv.x - 0.5) > 0.35 || abs(uv.y - 0.5) > 0.65) {
+                     float d = length(vec2(abs(pos.x)-0.4, abs(pos.y)-0.7));
+                     float corner = step(d, 0.05) - step(d, 0.04);
+                     color = mix(color, gold, corner);
+                 }
+            }
+
+            gl_FragColor = vec4(color * uBrightness, 1.0);
+        }
+    </script>
+
+    <!-- 顶点着色器 -->
+    <script type="x-shader/x-vertex" id="vertexShaderDissolve">
+        varying vec2 vUv;
+        varying vec3 vPosition;
+        varying vec3 vViewPosition; 
+        void main() {
+            vUv = uv;
+            vPosition = position;
+            
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            vViewPosition = -mvPosition.xyz; 
+            
+            gl_Position = projectionMatrix * mvPosition;
+        }
+    </script>
+
+    <!-- 正面着色器 (Corrected Logic: Texture Overlapping Side Borders but Under Top Border) -->
+    <script type="x-shader/x-fragment" id="fragmentShaderDissolve">
+        uniform sampler2D uTexture;
+        uniform float uProgress; 
+        uniform float uTime;
+        uniform float uBrightness;
+        uniform float uPulseActive; 
+        uniform vec2 uCursorPos;
+        uniform vec3 uBorderColor;
+        
+        varying vec2 vUv;
+        varying vec3 vPosition;
+        varying vec3 vViewPosition; 
+
+        vec3 hsv2rgb(vec3 c) {
+            vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+            vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+            return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+        }
+
+        float random(vec2 st) {
+            return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+        }
+
+        float noise(vec2 st) {
+            vec2 i = floor(st);
+            vec2 f = fract(st);
+            float a = random(i);
+            float b = random(i + vec2(1.0, 0.0));
+            float c = random(i + vec2(0.0, 1.0));
+            float d = random(i + vec2(1.0, 1.0));
+            vec2 u = f * f * (3.0 - 2.0 * f);
+            return mix(a, b, u.x) + (c - a)* u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+        }
+
+        void main() {
+            vec3 viewDir = normalize(vViewPosition);
+
+            // Frame thickness 
+            float sideWidth = 0.045; 
+            float bottomWidth = 0.045; 
+            float topWidth = 0.053; 
+            
+            // Normalize UV coordinates relative to border widths
+            float relDistLeft = vUv.x / sideWidth;
+            float relDistRight = (1.0 - vUv.x) / sideWidth;
+            float relDistBottom = vUv.y / bottomWidth;
+            float relDistTop = (1.0 - vUv.y) / topWidth;
+            
+            float minRelDist = min(min(relDistLeft, relDistRight), min(relDistBottom, relDistTop));
+            
+            bool isBorder = minRelDist < 1.0;
+            bool isTop = (1.0 - vUv.y) < topWidth; // Strict vertical top check
+            
+            vec3 goldColor = uBorderColor;
+            vec3 bgColor = vec3(0.02, 0.01, 0.0);
+            vec3 finalRGB = bgColor;
+            float finalAlpha = 1.0;
+            
+            // MASK FOR LIGHTING
+            float lightSurfaceMask = 0.0;
+
+            // 1. Calculate Frame Appearance (Volumetric Gold)
+            vec3 frameColor = bgColor;
+            if (isBorder) {
+                // Determine side for normals
+                int side = 0; // 0:Left, 1:Right, 2:Bottom, 3:Top
+                if (relDistRight < relDistLeft) side = 1;
+                if (relDistBottom < min(relDistLeft, relDistRight)) side = 2;
+                if (relDistTop < min(relDistBottom, min(relDistLeft, relDistRight))) side = 3;
+
+                vec2 normal = vec2(0.0);
+                if (side == 0) normal = vec2(-1.0, 0.0);       
+                else if (side == 1) normal = vec2(1.0, 0.0);  
+                else if (side == 2) normal = vec2(0.0, -1.0); 
+                else if (side == 3) normal = vec2(0.0, 1.0);  
+                
+                float t = minRelDist; 
+                vec2 lightDir = normalize(vec2(-0.7, 0.7));
+                float sideLight = dot(normal, lightDir);
+                float slope = (t < 0.4) ? 1.0 : -0.3; 
+                float intensity = sideLight * slope;
+                float litFactor = 0.5 + 0.5 * intensity; 
+                
+                vec3 shadow = goldColor * 0.25;
+                vec3 highlight = goldColor * 1.5 + vec3(0.2); 
+                
+                frameColor = mix(shadow, goldColor, smoothstep(0.0, 0.5, litFactor));
+                frameColor = mix(frameColor, highlight, smoothstep(0.7, 1.0, litFactor));
+                
+                float ridge = max(0.0, 1.0 - abs(t - 0.4) * 8.0);
+                frameColor += vec3(0.5) * ridge * ridge; 
+                
+                float grain = random(vUv * 90.0 + uTime * 0.01);
+                frameColor += vec3(0.04) * grain;
+            }
+
+            // 2. Sample Texture with Parallax
+            float anchorMask = smoothstep(0.0, 1.2, vUv.y); 
+            float depthScale = 0.08; 
+            vec2 parallaxUV = vUv - (viewDir.xy * depthScale * anchorMask);
+            
+            vec4 texColor = vec4(0.0);
+            // Check if parallaxUV is within standard texture bounds [0,1]
+            if (parallaxUV.x >= 0.0 && parallaxUV.x <= 1.0 && parallaxUV.y >= 0.0 && parallaxUV.y <= 1.0) {
+                texColor = texture2D(uTexture, parallaxUV);
+            }
+
+            // 3. Shadow Casting (From top frame onto image)
+            // Even if the image is covering the side/bottom borders, the top frame still casts shadow
+            // Shadow calculation is based on proximity to the top INNER edge
+            float distFromTopEdge = (1.0 - topWidth) - vUv.y;
+            float topShadow = 0.0;
+            if (distFromTopEdge > 0.0) {
+                 topShadow = smoothstep(0.0, 0.15, distFromTopEdge); // 0 near top, 1 far
+                 // Invert to get shadow strength: 1 near top, 0 far
+                 topShadow = 1.0 - topShadow;
+                 topShadow = pow(topShadow, 0.8) * 0.8; // Strength profile
+            }
+            
+            // 4. Compositing Logic
+            // Priority:
+            // 1. Top Frame (Always on top)
+            // 2. Texture (Can overlap side/bottom frames)
+            // 3. Side/Bottom Frame (Visible if texture is transparent or absent)
+            // 4. Background (If no frame and no texture)
+
+            if (isTop) {
+                // Top Frame Area: Strict Frame
+                finalRGB = frameColor;
+                finalAlpha = 1.0;
+                lightSurfaceMask = 1.0; // Frame is always lit
+            } else {
+                // Below Top Frame: Could be Image, Side/Bottom Frame, or Background
+                vec3 baseLayer = bgColor;
+                float baseMask = 0.0;
+                
+                if (isBorder) {
+                    // Side or Bottom Frame
+                    baseLayer = frameColor;
+                    baseMask = 1.0; // Frame is lit
+                }
+                
+                // Apply shadow to texture before blending
+                vec3 shadowedTex = texColor.rgb * (1.0 - topShadow);
+                
+                // Blend Texture over Base Layer
+                // If texture exists (alpha > 0), it covers the base layer (frame/bg)
+                finalRGB = mix(baseLayer, shadowedTex, texColor.a);
+                finalAlpha = 1.0;
+                
+                // For mask: if texture present, use its alpha. Else use base layer mask (frame vs bg)
+                lightSurfaceMask = mix(baseMask, texColor.a, texColor.a);
+            }
+
+            // --- Effects ---
+            if (uPulseActive > 0.01) { 
+                float spotDist = distance(vUv, uCursorPos);
+                float grating = sin((vUv.x + vUv.y) * 200.0); 
+                float organicNoise = noise(vec2(uTime * 3.0, vUv.y));
+                float pulse = 0.8 + 0.3 * sin(uTime * 5.0) * cos(uTime * 2.0); 
+                float hue = vUv.x * 0.5 + vUv.y * 0.3 + spotDist * 2.0 - uTime * 0.2;
+                vec3 rainbow = hsv2rgb(vec3(fract(hue), 0.8, 1.0)); 
+                float intensity = 1.0 - smoothstep(0.0, 0.35, spotDist); 
+                intensity *= (0.6 + 0.4 * grating); 
+                intensity *= pulse * (0.8 + 0.2 * organicNoise);
+                
+                // Apply Mask
+                float mask = uPulseActive * lightSurfaceMask; 
+                finalRGB += rainbow * intensity * 0.8 * mask; 
+                finalRGB += vec3(1.0) * pow(intensity, 3.0) * 0.6 * mask; 
+            }
+
+            float n = noise(vUv * 8.0 + uTime * 0.1); 
+            float threshold = uProgress;
+            float edgeWidth = 0.06; 
+            
+            vec4 finalOutput;
+            if (n < threshold) {
+                discard;
+            }
+            if (threshold > 0.001 && n < threshold + edgeWidth) {
+                finalOutput = vec4(1.0, 0.8, 0.2, 1.0); 
+            } else {
+                finalOutput = vec4(finalRGB, finalAlpha);
+            }
+
+            vec3 displayColor = finalOutput.rgb * uBrightness;
+
+            if (uPulseActive > 0.5 && isBorder) {
+                float pulse = 1.0 + 0.5 * sin(uTime * 6.28318);
+                displayColor *= pulse;
+            }
+
+            gl_FragColor = vec4(displayColor, finalOutput.a);
+        }
+    </script>
+
+    <!-- JS 逻辑 -->
+    <script>
+        const CONFIG = {
+            cardCount: 12,
+            radius: 10.5,           
+            cardWidth: 3.0,       
+            cardHeight: 5.25,      
+            colors: {
+                gold: 0xd4af37,
+                dark: 0x0b0500,
+                crimson: 0x800020,
+                parchment: 0xeaddcf
+            }
+        };
+        
+        // 汉化 Prophecy 字段 + 新增音频字段
+        // customAudio -> 翻牌音频 (FIST)
+        // guideAudio -> 指引音频 (ONE)
+        // dissolveAudio -> 消散音频 (GUN)
+        let ZODIAC_DATA = [
+            { name: "ARIES", symbol: "♈", mood: "PASSION", trait: "皇帝 (The Emperor)", prophecy: "权威与结构将指引你的道路。相信你的领导力。", image: "https://upload.wikimedia.org/wikipedia/commons/c/c3/RWS_Tarot_04_Emperor.jpg", scale: 1.0, offsetX: 0, offsetY: 0, customAudio: null, guideAudio: null, dissolveAudio: null },
+            { name: "TAURUS", symbol: "♉", mood: "STABILITY", trait: "教皇 (The Hierophant)", prophecy: "传统与智慧提供安全的避风港。倾听长者的声音。", image: "https://upload.wikimedia.org/wikipedia/commons/8/8d/RWS_Tarot_05_Hierophant.jpg", scale: 1.0, offsetX: 0, offsetY: 0, customAudio: null, guideAudio: null, dissolveAudio: null },
+            { name: "GEMINI", symbol: "♊", mood: "DUALITY", trait: "恋人 (The Lovers)", prophecy: "选择摆在你面前。跟随你的心，而不只是头脑。", image: "https://upload.wikimedia.org/wikipedia/commons/d/db/RWS_Tarot_06_Lovers.jpg", scale: 1.0, offsetX: 0, offsetY: 0, customAudio: null, guideAudio: null, dissolveAudio: null },
+            { name: "CANCER", symbol: "♋", mood: "INTUITION", trait: "战车 (The Chariot)", prophecy: "胜利来自意志力和纪律。勇往直前。", image: "https://upload.wikimedia.org/wikipedia/commons/9/9b/RWS_Tarot_07_Chariot.jpg", scale: 1.0, offsetX: 0, offsetY: 0, customAudio: null, guideAudio: null, dissolveAudio: null },
+            { name: "LEO", symbol: "♌", mood: "GLORY", trait: "力量 (Strength)", prophecy: "真正的力量在于温柔与耐心。驯服内心的野兽。", image: "https://upload.wikimedia.org/wikipedia/commons/f/f5/RWS_Tarot_08_Strength.jpg", scale: 1.0, offsetX: 0, offsetY: 0, customAudio: null, guideAudio: null, dissolveAudio: null },
+            { name: "VIRGO", symbol: "♍", mood: "ORDER", trait: "隐士 (The Hermit)", prophecy: "向内寻求答案。孤独带来理解之光。", image: "https://upload.wikimedia.org/wikipedia/commons/4/4d/RWS_Tarot_09_Hermit.jpg", scale: 1.0, offsetX: 0, offsetY: 0, customAudio: null, guideAudio: null, dissolveAudio: null },
+            { name: "LIBRA", symbol: "♎", mood: "HARMONY", trait: "正义 (Justice)", prophecy: "需要平衡与真理。每一个行动都有后果。", image: "https://upload.wikimedia.org/wikipedia/commons/e/e0/RWS_Tarot_11_Justice.jpg", scale: 1.0, offsetX: 0, offsetY: 0, customAudio: null, guideAudio: null, dissolveAudio: null },
+            { name: "SCORPIO", symbol: "♏", mood: "MYSTERY", trait: "死神 (Death)", prophecy: "结束只是新的开始。拥抱转变。", image: "https://upload.wikimedia.org/wikipedia/commons/d/d7/RWS_Tarot_13_Death.jpg", scale: 1.0, offsetX: 0, offsetY: 0, customAudio: null, guideAudio: null, dissolveAudio: null },
+            { name: "SAGITTARIUS", symbol: "♐", mood: "FREEDOM", trait: "节制 (Temperance)", prophecy: "耐心与适度。融合对立面以寻找和谐。", image: "https://upload.wikimedia.org/wikipedia/commons/f/f8/RWS_Tarot_14_Temperance.jpg", scale: 1.0, offsetX: 0, offsetY: 0, customAudio: null, guideAudio: null, dissolveAudio: null },
+            { name: "CAPRICORN", symbol: "♑", mood: "AMBITION", trait: "恶魔 (The Devil)", prophecy: "挣脱物质主义的枷锁。你是你自己的狱卒。", image: "https://upload.wikimedia.org/wikipedia/commons/5/55/RWS_Tarot_15_Devil.jpg", scale: 1.0, offsetX: 0, offsetY: 0, customAudio: null, guideAudio: null, dissolveAudio: null },
+            { name: "AQUARIUS", symbol: "♒", mood: "VISION", trait: "星星 (The Star)", prophecy: "希望与灵感正在回归。宇宙正在指引你。", image: "https://upload.wikimedia.org/wikipedia/commons/d/db/RWS_Tarot_17_Star.jpg", scale: 1.0, offsetX: 0, offsetY: 0, customAudio: null, guideAudio: null, dissolveAudio: null },
+            { name: "PISCES", symbol: "♓", mood: "DREAM", trait: "月亮 (The Moon)", prophecy: "相信你的直觉，因为事物并非表象那样。帷幕很薄。", image: "https://upload.wikimedia.org/wikipedia/commons/7/7f/RWS_Tarot_18_Moon.jpg", scale: 1.0, offsetX: 0, offsetY: 0, customAudio: null, guideAudio: null, dissolveAudio: null }
+        ];
+
+        const STATE = {
+            gesture: 'NONE', 
+            targetRotation: 0,
+            currentRotation: 0,
+            spinVelocity: 0.02, 
+            isFlipped: false, 
+            isDissolving: false, 
+            gestureHoldTime: 0,
+            selectedIndex: 0,
+            finger: { x: 0.5, y: 0.5 }
+        };
+
+        const clock = new THREE.Clock();
+
+        let camToggleBtn, camContainer;
+        let uploadFrontBtn, uploadBackBtn;
+        let uploadInputFront, uploadInputBack;
+        let loadConfigBtn, saveConfigBtn, configUploadInput; 
+        let scaleSlider, posYSlider, posXSlider; 
+        let videoElement, canvasElement, canvasCtx;
+        let hands, cameraUtils;
+        let scene, camera, renderer;
+        let cards = [];
+        let centerLight;
+        let backgroundParticles;
+        let cursorTrail; 
+        let registryOverlay, registryGrid, registryBtn, registryClose;
+        let oracleContainer, oracleTitle, oracleText; 
+        let currentAudioObj = null; // 全局翻牌音频对象
+        let guideAudioObj = null;   // 全局指引音频对象
+        let dissolveAudioObj = null;// 全局消散音频对象
+        
+        let fullscreenBtn, hideUiBtn;
+        let isZenMode = false;
+        let valTitle; // Valorant title element
+        let GLOBAL_BACK_IMAGE = null; // 新增：用于存储背面图片数据的全局变量
+
+        function dist(p1, p2) {
+            if (!p1 || !p2) return 0;
+            return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+        }
+
+        // --- 语音朗读功能 (Flip Reveal) ---
+        function speakProphecy(cardData) {
+            // 停止之前的 TTS
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+            }
+            // 停止之前的翻牌音频
+            if (currentAudioObj) {
+                currentAudioObj.pause();
+                currentAudioObj = null;
+            }
+
+            if (cardData.customAudio) {
+                // 播放自定义音频
+                currentAudioObj = new Audio(cardData.customAudio);
+                currentAudioObj.play().catch(e => console.log("Audio play failed", e));
+            } else {
+                // 降级到 TTS
+                if ('speechSynthesis' in window) {
+                    const utterance = new SpeechSynthesisUtterance(cardData.prophecy);
+                    utterance.lang = 'zh-CN'; 
+                    utterance.rate = 0.8; 
+                    utterance.pitch = 0.8; 
+                    
+                    const voices = window.speechSynthesis.getVoices();
+                    const zhVoice = voices.find(v => v.lang.includes('zh'));
+                    if (zhVoice) {
+                        utterance.voice = zhVoice;
+                    }
+
+                    window.speechSynthesis.speak(utterance);
+                }
+            }
+        }
+
+        // --- 粒子拖尾类 (星尘效果) ---
+        class CursorTrail {
+            constructor(scene, maxParticles = 100) {
+                this.maxParticles = maxParticles;
+                this.particles = [];
+                this.scene = scene;
+                
+                const geometry = new THREE.BufferGeometry();
+                const positions = new Float32Array(maxParticles * 3);
+                const sizes = new Float32Array(maxParticles);
+                const opacities = new Float32Array(maxParticles);
+                
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+                geometry.setAttribute('opacity', new THREE.BufferAttribute(opacities, 1));
+
+                // 自定义着色器，支持每个粒子独立透明度
+                const material = new THREE.ShaderMaterial({
+                    uniforms: {
+                        color: { value: new THREE.Color(0xffdf80) },
+                        pointTexture: { value: this.createGlowTexture() }
+                    },
+                    vertexShader: `
+                        attribute float size;
+                        attribute float opacity;
+                        varying float vOpacity;
+                        void main() {
+                            vOpacity = opacity;
+                            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                            gl_PointSize = size * (300.0 / -mvPosition.z);
+                            gl_Position = projectionMatrix * mvPosition;
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform vec3 color;
+                        uniform sampler2D pointTexture;
+                        varying float vOpacity;
+                        void main() {
+                            if (vOpacity <= 0.0) discard;
+                            vec4 texColor = texture2D(pointTexture, gl_PointCoord);
+                            gl_FragColor = vec4(color, vOpacity) * texColor;
+                        }
+                    `,
+                    transparent: true,
+                    depthWrite: false,
+                    blending: THREE.AdditiveBlending
+                });
+
+                this.mesh = new THREE.Points(geometry, material);
+                this.mesh.frustumCulled = false;
+                scene.add(this.mesh);
+                
+                // 初始化粒子池
+                for(let i=0; i<maxParticles; i++) {
+                    this.particles.push({
+                        x: 0, y: 0, z: 0,
+                        vx: 0, vy: 0, vz: 0,
+                        life: 0, maxLife: 0,
+                        size: 0
+                    });
+                }
+            }
+
+            createGlowTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 32; canvas.height = 32;
+                const ctx = canvas.getContext('2d');
+                const grad = ctx.createRadialGradient(16,16,0,16,16,16);
+                grad.addColorStop(0, 'rgba(255,255,255,1)');
+                grad.addColorStop(0.2, 'rgba(255,220,100,0.8)');
+                grad.addColorStop(0.5, 'rgba(255,200,50,0.2)');
+                grad.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0,0,32,32);
+                const tex = new THREE.CanvasTexture(canvas);
+                return tex;
+            }
+
+            emit(pos) {
+                // 每次发射几个粒子
+                for(let k=0; k<2; k++) {
+                    const p = this.particles.find(p => p.life <= 0);
+                    if(p) {
+                        p.life = 1.0;
+                        p.maxLife = 0.5 + Math.random() * 0.5; // 0.5~1秒寿命
+                        p.x = pos.x + (Math.random()-0.5)*0.2;
+                        p.y = pos.y + (Math.random()-0.5)*0.2;
+                        p.z = pos.z + (Math.random()-0.5)*0.2;
+                        p.vx = (Math.random()-0.5) * 0.05;
+                        p.vy = (Math.random()-0.5) * 0.05;
+                        p.vz = (Math.random()-0.5) * 0.05;
+                        p.size = 0.1 + Math.random() * 0.2;
+                    }
+                }
+            }
+
+            update(dt) {
+                const positions = this.mesh.geometry.attributes.position.array;
+                const sizes = this.mesh.geometry.attributes.size.array;
+                const opacities = this.mesh.geometry.attributes.opacity.array;
+
+                for(let i=0; i<this.maxParticles; i++) {
+                    const p = this.particles[i];
+                    if(p.life > 0) {
+                        p.life -= dt;
+                        p.x += p.vx;
+                        p.y += p.vy;
+                        p.z += p.vz;
+                        
+                        // 简单的重力
+                        p.vy -= 0.02 * dt; 
+
+                        positions[i*3] = p.x;
+                        positions[i*3+1] = p.y;
+                        positions[i*3+2] = p.z;
+                        
+                        const lifeRatio = p.life / p.maxLife;
+                        opacities[i] = Math.pow(lifeRatio, 1.5); // 淡出
+                        sizes[i] = p.size * lifeRatio;
+                    } else {
+                        opacities[i] = 0;
+                        positions[i*3] = 9999; // 移出视野
+                    }
+                }
+
+                this.mesh.geometry.attributes.position.needsUpdate = true;
+                this.mesh.geometry.attributes.size.needsUpdate = true;
+                this.mesh.geometry.attributes.opacity.needsUpdate = true;
+            }
+        }
+
+        // 颜色转换工具
+        function rgbToHsl(r, g, b) {
+            r /= 255, g /= 255, b /= 255;
+            var max = Math.max(r, g, b), min = Math.min(r, g, b);
+            var h, s, l = (max + min) / 2;
+            if (max == min) { h = s = 0; }
+            else {
+                var d = max - min;
+                s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                switch (max) {
+                    case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                    case g: h = (b - r) / d + 2; break;
+                    case b: h = (r - g) / d + 4; break;
+                }
+                h /= 6;
+            }
+            return [h, s, l];
+        }
+
+        function hslToRgb(h, s, l) {
+            var r, g, b;
+            if (s == 0) { r = g = b = l; }
+            else {
+                function hue2rgb(p, q, t) {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1/6) return p + (q - p) * 6 * t;
+                    if (t < 1/2) return q;
+                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                }
+                var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                var p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+            return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
+        }
+
+        // 修改：现在直接返回主色调，不再计算互补色
+        function getDominantComplementaryColor(img) {
+            if (!img.complete || img.naturalWidth === 0) {
+                return { r: 212, g: 175, b: 55 };
+            }
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 64;
+            canvas.height = 64;
+            
+            try {
+                ctx.drawImage(img, 0, 0, 64, 64);
+                const data = ctx.getImageData(0, 0, 64, 64).data;
+                
+                const colorCounts = {};
+                let maxCount = 0;
+                let dominantColor = { r: 0, g: 0, b: 0 };
+                const step = 4 * 4; 
+                const roundTo = (num) => Math.floor(num / 32) * 32;
+
+                for (let i = 0; i < data.length; i += step) {
+                    const a = data[i+3];
+                    if (a < 128) continue; 
+                    
+                    const r = data[i];
+                    const g = data[i+1];
+                    const b = data[i+2];
+                    
+                    if (Math.abs(r-g) < 20 && Math.abs(g-b) < 20) continue; 
+                    if ((r+g+b) < 50 || (r+g+b) > 700) continue; 
+
+                    const key = `${roundTo(r)},${roundTo(g)},${roundTo(b)}`;
+                    
+                    if (!colorCounts[key]) {
+                        colorCounts[key] = { count: 0, r: r, g: g, b: b };
+                    }
+                    colorCounts[key].count++;
+                    
+                    if (colorCounts[key].count > maxCount) {
+                        maxCount = colorCounts[key].count;
+                        dominantColor = colorCounts[key];
+                    }
+                }
+
+                if (maxCount === 0) return { r: 212, g: 175, b: 55 }; 
+
+                // --- 修改点：直接返回 Dominant Color ---
+                return { r: dominantColor.r, g: dominantColor.g, b: dominantColor.b };
+
+            } catch (e) {
+                console.warn("Cross-origin image data access blocked, using default gold border.", e);
+                return { r: 212, g: 175, b: 55 };
+            }
+        }
+
+        function onResults(results) {
+            document.getElementById('loader').classList.add('hidden');
+
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.globalAlpha = 0.8;
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.globalAlpha = 1.0;
+
+            let detectedGesture = 'NONE';
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // Safety check
+                if (!landmarks || landmarks.length < 21) {
+                     canvasCtx.restore();
+                     return;
+                }
+                
+                const isFingerOpen = (tip, base) => {
+                    if (!landmarks[tip] || !landmarks[base] || !landmarks[0]) return false;
+                    return dist(landmarks[tip], landmarks[0]) > dist(landmarks[base], landmarks[0]) * 1.3;
+                };
+                
+                let thumbOpen = false;
+                if (landmarks[4] && landmarks[9] && landmarks[3]) {
+                    thumbOpen = dist(landmarks[4], landmarks[9]) > dist(landmarks[3], landmarks[9]);
+                }
+                
+                const indexOpen = isFingerOpen(8, 5);
+                const middleOpen = isFingerOpen(12, 9);
+                const ringOpen = isFingerOpen(16, 13);
+                const pinkyOpen = isFingerOpen(20, 17);
+
+                let openCount = 0;
+                if(thumbOpen) openCount++;
+                if(indexOpen) openCount++;
+                if(middleOpen) openCount++;
+                if(ringOpen) openCount++;
+                if(pinkyOpen) openCount++;
+
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#8a6d3b', lineWidth: 3});
+                drawLandmarks(canvasCtx, landmarks, {color: '#d4af37', lineWidth: 1, radius: 4});
+
+                if (openCount >= 4) {
+                    detectedGesture = 'OPEN';
+                } else if (openCount <= 1 && !indexOpen) { 
+                    detectedGesture = 'FIST'; 
+                } else if (thumbOpen && indexOpen && !middleOpen && !ringOpen && !pinkyOpen) {
+                    detectedGesture = 'GUN';
+                } else if (indexOpen && !middleOpen && !ringOpen && !pinkyOpen) {
+                    detectedGesture = 'ONE';
+                    STATE.finger.x = landmarks[8].x;
+                    STATE.finger.y = landmarks[8].y;
+                }
+            }
+            
+            canvasCtx.restore();
+            handleGestureInput(detectedGesture);
+        }
+
+        async function initMediaPipe() {
+             videoElement = document.getElementById('webcam-video');
+             canvasElement = document.getElementById('webcam-canvas');
+             
+             if (!videoElement || !canvasElement) {
+                 console.warn("Webcam or Canvas element not found!");
+                 return;
+             }
+             
+             canvasCtx = canvasElement.getContext('2d');
+             
+             if (typeof Hands === 'undefined') {
+                 console.error('MediaPipe Hands library not loaded');
+                 return;
+             }
+             
+             try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                stream.getTracks().forEach(track => track.stop());
+             } catch (err) {
+                 console.error("Camera permission denied or error:", err);
+                 alert("无法访问摄像头。请检查浏览器权限设置。手势控制将不可用。");
+                 return;
+             }
+
+             hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+             hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+             hands.onResults(onResults);
+             
+             cameraUtils = new Camera(videoElement, {
+                onFrame: async () => { await hands.send({image: videoElement}); },
+                width: 320, height: 240
+            });
+            
+            cameraUtils.start().catch(e => {
+                console.error("Camera failed to start:", e);
+            });
+        }
+
+        // --- Config Save/Load Logic ---
+        function saveConfiguration() {
+            try {
+                // 修改：构建包含卡牌数据和背面图片的复合对象
+                const exportData = {
+                    version: 1,
+                    zodiacData: ZODIAC_DATA,
+                    globalBackImage: GLOBAL_BACK_IMAGE
+                };
+                
+                const dataStr = JSON.stringify(exportData, null, 2);
+                const blob = new Blob([dataStr], {type: "application/json"});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'mystic_tarot_config.json';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                console.error("Save failed:", err);
+                alert("保存失败 / Save Failed");
+            }
+        }
+
+        function loadConfiguration(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const loadedJson = JSON.parse(e.target.result);
+                    let loadedData = null;
+                    let loadedBack = null;
+
+                    // 兼容性处理：判断是旧版数组格式还是新版对象格式
+                    if (Array.isArray(loadedJson)) {
+                        loadedData = loadedJson; // 旧版格式
+                    } else if (loadedJson.zodiacData) {
+                        loadedData = loadedJson.zodiacData; // 新版格式
+                        loadedBack = loadedJson.globalBackImage;
+                    }
+
+                    if (Array.isArray(loadedData) && loadedData.length === CONFIG.cardCount) {
+                        for(let i=0; i<CONFIG.cardCount; i++) {
+                            ZODIAC_DATA[i] = loadedData[i];
+                        }
+                        
+                        // Force refresh visuals (Front)
+                        cards.forEach(card => {
+                            const newTex = createConstellationTexture(card.index, (color) => {
+                                 card.frontMat.uniforms.uBorderColor.value.setRGB(color.r/255, color.g/255, color.b/255);
+                            });
+                            card.frontMat.uniforms.uTexture.value = newTex;
+                        });
+
+                        // 新增：恢复背面图片
+                        if (loadedBack) {
+                            GLOBAL_BACK_IMAGE = loadedBack; // 更新状态
+                            const img = new Image();
+                            img.onload = () => {
+                                const tex = new THREE.Texture(img);
+                                tex.needsUpdate = true;
+                                cards.forEach(card => {
+                                    card.backMat.uniforms.uBackTexture.value = tex;
+                                    card.backMat.uniforms.uUseBackTexture.value = 1.0;
+                                });
+                            };
+                            img.src = loadedBack;
+                        }
+                        
+                        // Refresh registry UI if open
+                        if (registryOverlay.classList.contains('active')) {
+                            updateRegistryUI();
+                        }
+                        
+                        // Reset slider values for current card
+                        if (scaleSlider && posYSlider && posXSlider) {
+                            scaleSlider.value = ZODIAC_DATA[STATE.selectedIndex].scale || 1.0;
+                            posYSlider.value = ZODIAC_DATA[STATE.selectedIndex].offsetY || 0;
+                            posXSlider.value = ZODIAC_DATA[STATE.selectedIndex].offsetX || 0;
+                        }
+
+                        alert("配置已加载 / Configuration Loaded");
+                    } else {
+                        alert("配置数据格式不正确 / Invalid Data Format");
+                    }
+                } catch (err) {
+                    console.error("Load failed:", err);
+                    alert("文件解析失败 / Parse Failed");
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function updateRegistryUI() {
+            if (!registryGrid) return;
+            registryGrid.innerHTML = ''; 
+            
+            // UI elements for Reveal/Fist audio
+            const editorDiv = document.getElementById('registry-editor');
+            const editorCardNameInput = document.getElementById('editor-card-name-input');
+            const editorProphecy = document.getElementById('editor-prophecy-input');
+            
+            const editorAudioBtn = document.getElementById('upload-audio-btn');
+            const editorAudioInput = document.getElementById('editor-audio-input');
+            const audioStatus = document.getElementById('audio-status-text');
+            const clearAudioBtn = document.getElementById('clear-audio-btn');
+
+            // UI elements for Guide/One audio
+            const guideAudioBtn = document.getElementById('upload-guide-audio-btn');
+            const guideAudioInput = document.getElementById('editor-guide-audio-input');
+            const guideAudioStatus = document.getElementById('guide-audio-status-text');
+            const clearGuideAudioBtn = document.getElementById('clear-guide-audio-btn');
+
+            // UI elements for Dissolve/Gun audio
+            const dissolveAudioBtn = document.getElementById('upload-dissolve-audio-btn');
+            const dissolveAudioInput = document.getElementById('editor-dissolve-audio-input');
+            const dissolveAudioStatus = document.getElementById('dissolve-audio-status-text');
+            const clearDissolveAudioBtn = document.getElementById('clear-dissolve-audio-btn');
+
+            ZODIAC_DATA.forEach((item, index) => {
+                const div = document.createElement('div');
+                div.className = 'registry-card';
+                if (index === STATE.selectedIndex) div.classList.add('active');
+                
+                const isCustom = item.image.startsWith('data:');
+                if (isCustom) div.classList.add('custom');
+
+                div.innerHTML = `
+                    <div class="registry-icon">${item.symbol}</div>
+                    <div class="registry-name">${item.name}</div>
+                    <div class="status-dot"></div>
+                `;
+                
+                div.addEventListener('click', () => {
+                    STATE.selectedIndex = index;
+                    const target = -((index / CONFIG.cardCount) * Math.PI * 2) + Math.PI/2;
+                    const current = STATE.targetRotation;
+                    const diff = target - current;
+                    const adjustedDiff = Math.atan2(Math.sin(diff), Math.cos(diff));
+                    STATE.targetRotation = current + adjustedDiff;
+
+                    updateRegistryUI();
+                    
+                    if (STATE.isFlipped) {
+                        triggerDissolveReset();
+                    }
+                });
+
+                registryGrid.appendChild(div);
+            });
+
+            // Fill editor data
+            const currentItem = ZODIAC_DATA[STATE.selectedIndex];
+            editorDiv.classList.add('active');
+            
+            editorCardNameInput.value = currentItem.trait;
+            editorProphecy.value = currentItem.prophecy;
+            
+            // --- Reveal Audio Logic ---
+            if(currentItem.customAudio) {
+                audioStatus.classList.add('visible');
+                clearAudioBtn.style.display = 'inline-block';
+            } else {
+                audioStatus.classList.remove('visible');
+                clearAudioBtn.style.display = 'none';
+            }
+            
+            // --- Guide Audio Logic ---
+            if(currentItem.guideAudio) {
+                guideAudioStatus.classList.add('visible');
+                clearGuideAudioBtn.style.display = 'inline-block';
+            } else {
+                guideAudioStatus.classList.remove('visible');
+                clearGuideAudioBtn.style.display = 'none';
+            }
+
+            // --- Dissolve Audio Logic ---
+            if(currentItem.dissolveAudio) {
+                dissolveAudioStatus.classList.add('visible');
+                clearDissolveAudioBtn.style.display = 'inline-block';
+            } else {
+                dissolveAudioStatus.classList.remove('visible');
+                clearDissolveAudioBtn.style.display = 'none';
+            }
+
+            // Event Bindings
+            editorCardNameInput.onchange = (e) => {
+                ZODIAC_DATA[STATE.selectedIndex].trait = e.target.value;
+            };
+            editorProphecy.onchange = (e) => {
+                ZODIAC_DATA[STATE.selectedIndex].prophecy = e.target.value;
+            };
+
+            // Reveal Audio Events
+            editorAudioBtn.onclick = () => editorAudioInput.click();
+            editorAudioInput.onchange = (e) => {
+                const file = e.target.files[0];
+                if(!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    ZODIAC_DATA[STATE.selectedIndex].customAudio = ev.target.result;
+                    updateRegistryUI();
+                };
+                reader.readAsDataURL(file);
+                editorAudioInput.value = ''; 
+            };
+            clearAudioBtn.onclick = () => {
+                ZODIAC_DATA[STATE.selectedIndex].customAudio = null;
+                updateRegistryUI();
+            };
+
+            // Guide Audio Events
+            guideAudioBtn.onclick = () => guideAudioInput.click();
+            guideAudioInput.onchange = (e) => {
+                const file = e.target.files[0];
+                if(!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    ZODIAC_DATA[STATE.selectedIndex].guideAudio = ev.target.result;
+                    updateRegistryUI();
+                };
+                reader.readAsDataURL(file);
+                guideAudioInput.value = '';
+            };
+            clearGuideAudioBtn.onclick = () => {
+                ZODIAC_DATA[STATE.selectedIndex].guideAudio = null;
+                updateRegistryUI();
+            };
+
+            // Dissolve Audio Events
+            dissolveAudioBtn.onclick = () => dissolveAudioInput.click();
+            dissolveAudioInput.onchange = (e) => {
+                const file = e.target.files[0];
+                if(!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    ZODIAC_DATA[STATE.selectedIndex].dissolveAudio = ev.target.result;
+                    updateRegistryUI();
+                };
+                reader.readAsDataURL(file);
+                dissolveAudioInput.value = '';
+            };
+            clearDissolveAudioBtn.onclick = () => {
+                ZODIAC_DATA[STATE.selectedIndex].dissolveAudio = null;
+                updateRegistryUI();
+            };
+        }
+
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        }
+
+        function toggleZenMode() {
+            isZenMode = !isZenMode;
+            if (isZenMode) {
+                document.body.classList.add('zen-mode');
+            } else {
+                document.body.classList.remove('zen-mode');
+            }
+        }
+
+        function initUI() {
+            camToggleBtn = document.getElementById('cam-toggle-btn');
+            camContainer = document.getElementById('cam-container');
+            uploadFrontBtn = document.getElementById('upload-front-btn');
+            uploadBackBtn = document.getElementById('upload-back-btn');
+            uploadInputFront = document.getElementById('image-upload-front');
+            uploadInputBack = document.getElementById('image-upload-back');
+            valTitle = document.getElementById('valorant-title');
+
+            // Config Buttons
+            loadConfigBtn = document.getElementById('load-config-btn');
+            saveConfigBtn = document.getElementById('save-config-btn');
+            configUploadInput = document.getElementById('config-upload-input');
+
+            // System Buttons
+            fullscreenBtn = document.getElementById('fullscreen-btn');
+            hideUiBtn = document.getElementById('hide-ui-btn');
+
+            scaleSlider = document.getElementById('scale-slider'); 
+            posYSlider = document.getElementById('pos-y-slider');
+            posXSlider = document.getElementById('pos-x-slider');
+            registryOverlay = document.getElementById('registry-overlay');
+            registryGrid = document.getElementById('registry-grid');
+            registryBtn = document.getElementById('registry-btn'); 
+            registryClose = document.getElementById('registry-close');
+            
+            // 神谕 UI
+            oracleContainer = document.getElementById('oracle-container');
+            oracleTitle = document.getElementById('oracle-title');
+            oracleText = document.getElementById('oracle-text');
+
+            if (registryBtn && registryOverlay) {
+                registryBtn.addEventListener('click', () => {
+                    updateRegistryUI();
+                    registryOverlay.classList.add('active');
+                });
+                registryClose.addEventListener('click', () => {
+                    registryOverlay.classList.remove('active');
+                });
+                registryOverlay.addEventListener('click', (e) => {
+                    if(e.target === registryOverlay) registryOverlay.classList.remove('active');
+                });
+            }
+
+            if(camToggleBtn && camContainer) {
+                camToggleBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    camContainer.classList.toggle('minimized');
+                    if(camContainer.classList.contains('minimized')) {
+                        camToggleBtn.innerText = '📷'; 
+                        camToggleBtn.style.opacity = '1';
+                        camToggleBtn.style.background = 'rgba(0,0,0,0.5)';
+                    } else {
+                        camToggleBtn.innerText = '👁️'; 
+                        camToggleBtn.style.opacity = '1';
+                        camToggleBtn.style.background = 'rgba(20, 10, 5, 0.9)';
+                    }
+                });
+            }
+
+            if (fullscreenBtn) {
+                fullscreenBtn.addEventListener('click', toggleFullScreen);
+            }
+            if (hideUiBtn) {
+                hideUiBtn.addEventListener('click', toggleZenMode);
+            }
+
+            if(scaleSlider) {
+                scaleSlider.addEventListener('input', (e) => {
+                    const newScale = parseFloat(e.target.value);
+                    ZODIAC_DATA[STATE.selectedIndex].scale = newScale;
+                    const newTex = createConstellationTexture(STATE.selectedIndex, null); 
+                    const card = cards[STATE.selectedIndex];
+                    card.frontMat.uniforms.uTexture.value = newTex;
+                });
+            }
+
+            if(posYSlider) {
+                posYSlider.addEventListener('input', (e) => {
+                    const newOffsetY = parseFloat(e.target.value);
+                    ZODIAC_DATA[STATE.selectedIndex].offsetY = newOffsetY;
+                    const newTex = createConstellationTexture(STATE.selectedIndex, null);
+                    const card = cards[STATE.selectedIndex];
+                    card.frontMat.uniforms.uTexture.value = newTex;
+                });
+            }
+
+            if(posXSlider) {
+                posXSlider.addEventListener('input', (e) => {
+                    const newOffsetX = parseFloat(e.target.value);
+                    ZODIAC_DATA[STATE.selectedIndex].offsetX = newOffsetX;
+                    const newTex = createConstellationTexture(STATE.selectedIndex, null);
+                    const card = cards[STATE.selectedIndex];
+                    card.frontMat.uniforms.uTexture.value = newTex;
+                });
+            }
+
+            // 修改部分：使用自定义模态框替代 prompt
+            if(uploadFrontBtn && uploadInputFront) {
+                const pwdModal = document.getElementById('password-modal');
+                const pwdInput = document.getElementById('password-input');
+                const pwdConfirm = document.getElementById('password-confirm-btn');
+                const pwdCancel = document.getElementById('password-cancel-btn');
+
+                const handlePasswordSubmit = () => {
+                    if (pwdInput.value === "153207") {
+                        pwdModal.style.display = 'none';
+                        pwdInput.value = ''; // 清空密码
+                        uploadInputFront.click();
+                    } else {
+                        alert("密码错误，凡人无法干涉命运。 (Incorrect Password)");
+                        pwdInput.value = '';
+                        pwdInput.focus();
+                    }
+                };
+
+                uploadFrontBtn.addEventListener('click', () => {
+                    pwdModal.style.display = 'flex';
+                    pwdInput.value = '';
+                    setTimeout(() => pwdInput.focus(), 100);
+                });
+
+                if(pwdConfirm) pwdConfirm.onclick = handlePasswordSubmit;
+                
+                if(pwdCancel) pwdCancel.onclick = () => {
+                    pwdModal.style.display = 'none';
+                };
+
+                if(pwdInput) pwdInput.onkeydown = (e) => {
+                    if (e.key === 'Enter') handlePasswordSubmit();
+                    if (e.key === 'Escape') pwdModal.style.display = 'none';
+                };
+
+                uploadInputFront.addEventListener('change', (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        ZODIAC_DATA[STATE.selectedIndex].image = event.target.result;
+                        
+                        const newTex = createConstellationTexture(STATE.selectedIndex, (color) => {
+                             const card = cards[STATE.selectedIndex];
+                             card.frontMat.uniforms.uBorderColor.value.setRGB(color.r/255, color.g/255, color.b/255);
+                        });
+                        
+                        const card = cards[STATE.selectedIndex];
+                        card.frontMat.uniforms.uTexture.value = newTex;
+                        
+                        uploadInputFront.value = '';
+                        const originalText = uploadFrontBtn.innerText;
+                        uploadFrontBtn.innerText = "✨ 注入完成";
+                        setTimeout(() => uploadFrontBtn.innerText = originalText, 2000);
+                        
+                        updateRegistryUI();
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            if(uploadBackBtn && uploadInputBack) {
+                uploadBackBtn.addEventListener('click', () => {
+                    uploadInputBack.click();
+                });
+
+                uploadInputBack.addEventListener('change', (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        GLOBAL_BACK_IMAGE = event.target.result; // 新增：保存图片数据到全局变量
+                        const img = new Image();
+                        img.onload = () => {
+                            const tex = new THREE.Texture(img);
+                            tex.needsUpdate = true;
+                            
+                            cards.forEach(card => {
+                                card.backMat.uniforms.uBackTexture.value = tex;
+                                card.backMat.uniforms.uUseBackTexture.value = 1.0;
+                            });
+                            
+                            uploadInputBack.value = '';
+                            const originalText = uploadBackBtn.innerText;
+                            uploadBackBtn.innerText = "✨ 结界更新";
+                            setTimeout(() => uploadBackBtn.innerText = originalText, 2000);
+                        };
+                        img.src = event.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            // Save/Load Event Listeners
+            if (saveConfigBtn) {
+                saveConfigBtn.addEventListener('click', saveConfiguration);
+            }
+            if (loadConfigBtn && configUploadInput) {
+                loadConfigBtn.addEventListener('click', () => {
+                    configUploadInput.click();
+                });
+                configUploadInput.addEventListener('change', (e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                        loadConfiguration(file);
+                        configUploadInput.value = ''; 
+                    }
+                });
+            }
+        }
+
+        function createConstellationTexture(index, colorCallback = null) {
+            const width = 512;
+            const height = 896; 
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+
+            const data = ZODIAC_DATA[index];
+            const scale = data.scale || 1.0; 
+            const offsetYUser = data.offsetY || 0; 
+            const offsetXUser = data.offsetX || 0; 
+            
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.anisotropy = 16;
+            tex.wrapS = THREE.ClampToEdgeWrapping;
+            tex.wrapT = THREE.ClampToEdgeWrapping;
+
+            function drawContent(img = null) {
+                ctx.clearRect(0, 0, width, height); 
+
+                if (img) {
+                    ctx.save();
+                    
+                    // 1. 定义目标容器区域 (基于用户的缩放 Zoom 和位移 Pos X/Y)
+                    const containerW = width * scale;
+                    const containerH = height * scale;
+                    const containerX = (width - containerW) / 2 + offsetXUser; 
+                    const containerY = (height - containerH) / 2 + offsetYUser; 
+                    
+                    // 2. 计算缩放比例：同等比例缩放 (Maintain Aspect Ratio)，适应容器 (Contain)
+                    // Math.min 确保宽或高都不超出容器，实现“最合适大小”且“不裁切”
+                    const ratio = Math.min(containerW / img.width, containerH / img.height);
+                    
+                    const finalW = img.width * ratio;
+                    const finalH = img.height * ratio;
+                    
+                    // 3. 在容器内居中
+                    const finalX = containerX + (containerW - finalW) / 2;
+                    const finalY = containerY + (containerH - finalH) / 2;
+                    
+                    // 4. 绘制
+                    ctx.drawImage(img, 0, 0, img.width, img.height, finalX, finalY, finalW, finalH);
+                    
+                    if (colorCallback) {
+                        const avgColor = getDominantComplementaryColor(img);
+                        colorCallback(avgColor);
+                    }
+
+                    ctx.restore();
+                } 
+
+                tex.needsUpdate = true;
+            }
+
+            drawContent(null);
+
+            if (data.image && data.image.trim() !== "") {
+                const img = new Image();
+                img.crossOrigin = "Anonymous"; 
+                img.onload = function() {
+                    drawContent(img); 
+                };
+                img.onerror = function() {
+                    console.warn(`Failed to load image for ${data.name}`);
+                };
+                img.src = data.image;
+            }
+
+            return tex;
+        }
+
+        function initThree() {
+            const container = document.getElementById('canvas-container');
+            
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x0b0500, 0.04);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 0, 23.0); 
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0x554433);
+            scene.add(ambientLight);
+
+            centerLight = new THREE.PointLight(0xffaa00, 1.2, 15);
+            centerLight.position.set(0, 0, 3);
+            scene.add(centerLight);
+
+            createParticles();
+            createCards();
+            
+            // 初始化粒子拖尾
+            cursorTrail = new CursorTrail(scene);
+
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function createParticles() {
+            const geometry = new THREE.BufferGeometry();
+            const vertices = [];
+            const count = 60000; 
+            const rangeX = 140;  
+            const rangeY = 90;   
+            const rangeZ = 60;   
+            
+            for (let i = 0; i < count; i++) {
+                vertices.push(
+                    (Math.random() - 0.5) * rangeX, 
+                    (Math.random() - 0.5) * rangeY, 
+                    (Math.random() - 0.5) * rangeZ
+                );
+            }
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            
+            const material = new THREE.PointsMaterial({ 
+                color: 0xe6c288, 
+                size: 0.06,      
+                transparent: true, 
+                opacity: 0.6,    
+                blending: THREE.AdditiveBlending 
+            });
+            backgroundParticles = new THREE.Points(geometry, material);
+            scene.add(backgroundParticles);
+        }
+
+        function createCards() {
+            const geometry = new THREE.PlaneGeometry(CONFIG.cardWidth, CONFIG.cardHeight);
+
+            for (let i = 0; i < CONFIG.cardCount; i++) {
+                const group = new THREE.Group();
+                
+                let frontMat; 
+
+                const backMat = new THREE.ShaderMaterial({
+                    uniforms: {
+                        uTime: { value: 0 },
+                        uBrightness: { value: 1.0 },
+                        uBackTexture: { value: null }, 
+                        uUseBackTexture: { value: 0.0 } 
+                    },
+                    vertexShader: document.getElementById('vertexShaderDissolve').textContent,
+                    fragmentShader: document.getElementById('fragmentShaderBack').textContent,
+                    side: THREE.FrontSide 
+                });
+                const backMesh = new THREE.Mesh(geometry, backMat);
+                backMesh.rotation.y = Math.PI; 
+                backMesh.position.z = -0.01; 
+                group.add(backMesh);
+
+                const frontTex = createConstellationTexture(i, (color) => {
+                    if (frontMat) {
+                        frontMat.uniforms.uBorderColor.value.setRGB(color.r/255, color.g/255, color.b/255);
+                    }
+                });
+                
+                frontMat = new THREE.ShaderMaterial({
+                    uniforms: {
+                        uTexture: { value: frontTex },
+                        uProgress: { value: 0.0 },
+                        uTime: { value: 0 },
+                        uBrightness: { value: 1.0 },
+                        uPulseActive: { value: 0.0 },
+                        uCursorPos: { value: new THREE.Vector2(0.5, 0.5) },
+                        uBorderColor: { value: new THREE.Color(0.83, 0.68, 0.21) } 
+                    },
+                    vertexShader: document.getElementById('vertexShaderDissolve').textContent,
+                    fragmentShader: document.getElementById('fragmentShaderDissolve').textContent,
+                    side: THREE.FrontSide,
+                    transparent: true
+                });
+                const frontMesh = new THREE.Mesh(geometry, frontMat);
+                group.add(frontMesh);
+
+                const card = {
+                    group: group,
+                    frontMat: frontMat,
+                    backMat: backMat,
+                    frontMesh: frontMesh,
+                    backMesh: backMesh,
+                    baseAngle: (i / CONFIG.cardCount) * Math.PI * 2,
+                    index: i,
+                    originalScale: 1.0 
+                };
+                
+                cards.push(card);
+                scene.add(group);
+            }
+            updateCardPositions(0);
+        }
+
+        function updateCardPositions(offset) {
+            cards.forEach((card, i) => {
+                if (STATE.isFlipped && card.index === STATE.selectedIndex) {
+                    return; 
+                }
+
+                const angle = card.baseAngle + offset;
+                const x = Math.cos(angle) * CONFIG.radius;
+                const z = Math.sin(angle) * (CONFIG.radius * 0.6) - 3.5; 
+                
+                card.group.position.set(x, 0, z);
+                card.group.lookAt(0, 0, 10); 
+                card.group.lookAt(camera.position);
+                card.group.rotation.y += Math.PI; 
+
+                const scale = THREE.MathUtils.mapLinear(z, -6, -0.25, 0.7, 1.1);
+                
+                if (!STATE.isFlipped || card.index !== STATE.selectedIndex) {
+                   card.group.scale.set(scale, scale, scale);
+                   card.originalScale = scale;
+                }
+            });
+
+            if (!STATE.isFlipped) {
+                let maxZ = -Infinity;
+                let frontIndex = -1;
+                cards.forEach((c, idx) => {
+                    if(c.group.position.z > maxZ) {
+                        maxZ = c.group.position.z;
+                        frontIndex = idx;
+                    }
+                });
+                
+                if (STATE.selectedIndex !== frontIndex) {
+                    STATE.selectedIndex = frontIndex;
+                    if (scaleSlider && posYSlider && posXSlider) {
+                        const currentScale = ZODIAC_DATA[frontIndex].scale || 1.0;
+                        const currentOffsetY = ZODIAC_DATA[frontIndex].offsetY || 0;
+                        const currentOffsetX = ZODIAC_DATA[frontIndex].offsetX || 0;
+                        scaleSlider.value = currentScale;
+                        posYSlider.value = currentOffsetY;
+                        posXSlider.value = currentOffsetX;
+                    }
+                    
+                    if(typeof updateRegistryUI === 'function') {
+                        updateRegistryUI();
+                    }
+                }
+            }
+        }
+        
+        function triggerDissolveReset() {
+            if (STATE.isDissolving) return;
+            STATE.isDissolving = true;
+            
+            // 隐藏神谕
+            oracleContainer.classList.remove('visible');
+            // 停止朗读
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+            }
+            if (currentAudioObj) {
+                currentAudioObj.pause();
+                currentAudioObj = null;
+            }
+            if (guideAudioObj) {
+                guideAudioObj.pause();
+            }
+
+            const card = cards[STATE.selectedIndex];
+            if (!card) return;
+
+            card.frontMat.uniforms.uPulseActive.value = 0.0;
+
+            // 播放消散音频
+            const data = ZODIAC_DATA[STATE.selectedIndex];
+            if (data.dissolveAudio) {
+                if(dissolveAudioObj) {
+                    dissolveAudioObj.pause();
+                    dissolveAudioObj = null;
+                }
+                dissolveAudioObj = new Audio(data.dissolveAudio);
+                dissolveAudioObj.play().catch(e => console.log("Dissolve audio error", e));
+            }
+
+            cards.forEach(c => {
+                new TWEEN.Tween(c.backMat.uniforms.uBrightness)
+                    .to({ value: 1.0 }, 1000)
+                    .start();
+                new TWEEN.Tween(c.frontMat.uniforms.uBrightness)
+                    .to({ value: 1.0 }, 1000)
+                    .start();
+            });
+
+            new TWEEN.Tween(card.frontMat.uniforms.uProgress)
+                .to({ value: 1.1 }, 1500) 
+                .easing(TWEEN.Easing.Quadratic.InOut)
+                .onComplete(() => {
+                    new TWEEN.Tween(card.group.scale)
+                        .to({ x: card.originalScale, y: card.originalScale, z: card.originalScale }, 500)
+                        .start();
+
+                    new TWEEN.Tween(card.group.rotation)
+                        .to({ y: card.group.rotation.y + Math.PI }, 800) 
+                        .onComplete(() => {
+                            card.frontMat.uniforms.uProgress.value = 0.0;
+                            STATE.isFlipped = false;
+                            STATE.isDissolving = false;
+                        })
+                        .start();
+                })
+                .start();
+
+            spawnParticles(card.group, 800);
+        }
+
+        function triggerFlipReveal() {
+            const selectedCard = cards[STATE.selectedIndex];
+            if (!selectedCard) return;
+
+            cards.forEach(c => {
+                if (c.index !== STATE.selectedIndex) {
+                    new TWEEN.Tween(c.backMat.uniforms.uBrightness)
+                        .to({ value: 0.2 }, 1000)
+                        .start();
+                    new TWEEN.Tween(c.frontMat.uniforms.uBrightness)
+                        .to({ value: 0.2 }, 1000)
+                        .start();
+                }
+            });
+
+            new TWEEN.Tween(selectedCard.group.rotation)
+                .to({ x: 0, y: 0, z: 0 }, 1200) 
+                .easing(TWEEN.Easing.Back.Out)
+                .onComplete(() => {
+                    // 显示神谕文字
+                    const data = ZODIAC_DATA[STATE.selectedIndex];
+                    oracleTitle.innerText = data.trait;
+                    oracleText.innerText = `"${data.prophecy}"`;
+                    oracleContainer.classList.add('visible');
+                    
+                    // 朗读预言
+                    speakProphecy(data);
+                })
+                .start();
+
+            new TWEEN.Tween(selectedCard.group.scale)
+                .to({ x: 1.5, y: 1.5, z: 1.5 }, 1200)
+                .easing(TWEEN.Easing.Cubic.Out)
+                .start();
+            
+            new TWEEN.Tween(selectedCard.group.position)
+                .to({ x: 0, y: 0, z: 14 }, 1200) 
+                .easing(TWEEN.Easing.Cubic.Out)
+                .start();
+
+            STATE.isFlipped = true;
+            spawnParticles(selectedCard.group, 100);
+        }
+
+        function spawnParticles(parent, count) {
+            const pGeo = new THREE.BufferGeometry();
+            const pPos = [];
+            const pVel = [];
+            for(let i=0; i<count; i++) {
+                pPos.push((Math.random()-0.5)*1.5, (Math.random()-0.5)*2.2, 0); 
+                pVel.push((Math.random()-0.5)*0.05, (Math.random()*0.1), (Math.random()*0.1)); 
+            }
+            pGeo.setAttribute('position', new THREE.Float32BufferAttribute(pPos, 3));
+            const pMat = new THREE.PointsMaterial({
+                color: 0xffaa00, size: 0.08, transparent: true, blending: THREE.AdditiveBlending
+            });
+            const pSystem = new THREE.Points(pGeo, pMat);
+            parent.add(pSystem);
+
+            const pObj = { sys: pSystem, vels: pVel, age: 0 };
+            
+            const animateP = () => {
+                pObj.age++;
+                const pos = pSystem.geometry.attributes.position.array;
+                for(let i=0; i<count; i++) {
+                    pos[i*3] += pObj.vels[i*3];
+                    pos[i*3+1] += pObj.vels[i*3+1];
+                    pos[i*3+2] += pObj.vels[i*3+2];
+                }
+                pSystem.geometry.attributes.position.needsUpdate = true;
+                pSystem.material.opacity = 1.0 - (pObj.age / 100);
+                if(pObj.age < 100) requestAnimationFrame(animateP);
+                else parent.remove(pSystem);
+            }
+            animateP();
+        }
+
+        function handleGestureInput(gesture) {
+            const prevGesture = STATE.gesture;
+            STATE.gesture = gesture;
+
+            const uiStatus = document.getElementById('status-text');
+            const uiProgress = document.getElementById('progress-bar-fill');
+            
+            document.querySelectorAll('.gesture-item').forEach(el => el.classList.remove('active'));
+            if(gesture === 'OPEN') document.getElementById('g-open').classList.add('active');
+            if(gesture === 'GUN') document.getElementById('g-gun').classList.add('active');
+            if(gesture === 'FIST') document.getElementById('g-fist').classList.add('active');
+            if(gesture === 'ONE') document.getElementById('g-one').classList.add('active');
+
+            const card = cards[STATE.selectedIndex];
+
+            // --- Valorant Title Logic ---
+            const valTitle = document.getElementById('valorant-title');
+            if (valTitle) {
+                if (!STATE.isFlipped && !STATE.isDissolving && (gesture === 'NONE' || gesture === 'OPEN')) {
+                    valTitle.classList.remove('hidden');
+                    if (gesture === 'OPEN') {
+                        valTitle.classList.add('flashing');
+                    } else {
+                        valTitle.classList.remove('flashing');
+                    }
+                } else {
+                    valTitle.classList.add('hidden');
+                    valTitle.classList.remove('flashing');
+                }
+            }
+
+            switch (gesture) {
+                case 'OPEN': 
+                    if (!STATE.isFlipped && !STATE.isDissolving) {
+                        uiStatus.innerText = "THE WHEEL TURNS...";
+                        if (STATE.spinVelocity < 0.06) {
+                            STATE.spinVelocity += 0.0005; 
+                        }
+                        STATE.targetRotation -= STATE.spinVelocity; 
+                        uiProgress.style.width = "100%";
+                    } else {
+                         uiStatus.innerText = "FATE IS SEALED";
+                         uiProgress.style.width = "0%";
+                    }
+                    if(!STATE.isFlipped) {
+                        card.frontMat.uniforms.uPulseActive.value += (0.0 - card.frontMat.uniforms.uPulseActive.value) * 0.1;
+                    }
+                    break;
+
+                case 'FIST': 
+                    STATE.spinVelocity = 0.02;
+                    if (!STATE.isFlipped && !STATE.isDissolving) {
+                        STATE.gestureHoldTime++;
+                        const holdLimit = 18; // 0.6s
+                        uiStatus.innerText = `REVEALING TRUTH... ${(STATE.gestureHoldTime/holdLimit*100).toFixed(0)}%`;
+                        uiProgress.style.width = `${Math.min(STATE.gestureHoldTime/holdLimit*100, 100)}%`;
+
+                        if (STATE.gestureHoldTime > holdLimit) { 
+                            triggerFlipReveal();
+                            STATE.gestureHoldTime = 0;
+                        }
+                    } else if (STATE.isFlipped) {
+                        uiStatus.innerText = "BEHOLD THE SIGN";
+                        uiProgress.style.width = "100%";
+                    }
+                    break;
+
+                case 'GUN': 
+                    STATE.spinVelocity = 0.02;
+                    if (STATE.isFlipped && !STATE.isDissolving) {
+                        STATE.gestureHoldTime++;
+                        const holdLimit = 18; 
+                        uiStatus.innerText = `RETURNING TO DUST... ${(STATE.gestureHoldTime/holdLimit*100).toFixed(0)}%`;
+                        uiProgress.style.width = `${Math.min(STATE.gestureHoldTime/holdLimit*100, 100)}%`;
+
+                        if (STATE.gestureHoldTime > holdLimit) {
+                            triggerDissolveReset();
+                            STATE.gestureHoldTime = 0;
+                        }
+                    } else {
+                         uiStatus.innerText = "NOTHING TO CLEAR";
+                         uiProgress.style.width = "0%";
+                         STATE.gestureHoldTime = 0;
+                    }
+                    break;
+
+                case 'ONE':
+                    STATE.spinVelocity = 0.02;
+                    if (STATE.isFlipped && !STATE.isDissolving) {
+                        uiStatus.innerText = "OBSERVING...";
+                        uiProgress.style.width = "50%";
+                        
+                        const maxRot = 1.0; 
+                        const targetY = (STATE.finger.x - 0.5) * maxRot * 2.0; 
+                        const targetX = (STATE.finger.y - 0.5) * maxRot * 2.0; 
+                        
+                        card.group.rotation.y += (targetY - card.group.rotation.y) * 0.1;
+                        card.group.rotation.x += (targetX - card.group.rotation.x) * 0.1;
+
+                        card.frontMat.uniforms.uCursorPos.value.set(STATE.finger.x, 1.0 - STATE.finger.y);
+                        // 激活光照
+                        card.frontMat.uniforms.uPulseActive.value += (1.0 - card.frontMat.uniforms.uPulseActive.value) * 0.1;
+
+                        // *** 生成魔法粒子拖尾 ***
+                        if (cursorTrail) {
+                            const x = (STATE.finger.x - 0.5) * -12.0; 
+                            const y = (STATE.finger.y - 0.5) * -8.0; 
+                            const z = 15.5; 
+                            cursorTrail.emit({x, y, z});
+                        }
+                    }
+                    break;
+
+                default:
+                    uiStatus.innerText = "CONSULT THE CARDS";
+                    uiProgress.style.width = "0%";
+                    STATE.gestureHoldTime = 0;
+                    STATE.spinVelocity = 0.02;
+                    if(!STATE.isFlipped) {
+                        STATE.targetRotation -= 0.001; 
+                        card.frontMat.uniforms.uPulseActive.value += (0.0 - card.frontMat.uniforms.uPulseActive.value) * 0.1;
+                    } else {
+                        card.group.rotation.x += (0 - card.group.rotation.x) * 0.1;
+                        card.group.rotation.y += (0 - card.group.rotation.y) * 0.1;
+                        card.group.rotation.z += (0 - card.group.rotation.z) * 0.1;
+                        card.frontMat.uniforms.uCursorPos.value.lerp(new THREE.Vector2(0.5, 0.5), 0.1);
+                        // 闲置时关闭光照
+                        card.frontMat.uniforms.uPulseActive.value += (0.0 - card.frontMat.uniforms.uPulseActive.value) * 0.1;
+                    }
+                    break;
+            }
+
+            // 处理单指音频循环逻辑
+            if (gesture === 'ONE' && prevGesture !== 'ONE') {
+                // 开始指引
+                const data = ZODIAC_DATA[STATE.selectedIndex];
+                if (data.guideAudio) {
+                    if (guideAudioObj) guideAudioObj.pause();
+                    guideAudioObj = new Audio(data.guideAudio);
+                    guideAudioObj.loop = true;
+                    guideAudioObj.play().catch(e => console.log("Guide audio error", e));
+                }
+            } else if (gesture !== 'ONE' && prevGesture === 'ONE') {
+                // 停止指引
+                if (guideAudioObj) {
+                    guideAudioObj.pause();
+                    guideAudioObj = null;
+                }
+            }
+
+            if(!STATE.isFlipped) {
+                STATE.currentRotation += (STATE.targetRotation - STATE.currentRotation) * 0.05;
+                updateCardPositions(STATE.currentRotation);
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            TWEEN.update();
+            
+            const elapsed = clock.getElapsedTime(); 
+            const dt = clock.getDelta(); // 获取帧间隔
+
+            cards.forEach(card => {
+                card.frontMat.uniforms.uTime.value = elapsed;
+                card.backMat.uniforms.uTime.value = elapsed;
+            });
+            
+            // 更新粒子拖尾
+            if(cursorTrail) cursorTrail.update(0.016); // 约60fps
+
+            if(backgroundParticles) {
+                const positions = backgroundParticles.geometry.attributes.position.array;
+                const count = positions.length / 3;
+                
+                let speed = 0.045;
+                let targetOpacity = 0.6; 
+
+                if (STATE.gesture === 'OPEN') {
+                    speed = 3.0; 
+                    targetOpacity = 1.0; 
+                }
+
+                backgroundParticles.material.opacity += (targetOpacity - backgroundParticles.material.opacity) * 0.1;
+
+                const limitX = 70; 
+
+                for(let i = 0; i < count; i++) {
+                    positions[i*3] += speed;
+
+                    if(positions[i*3] > limitX) {
+                        positions[i*3] = -limitX;
+                        positions[i*3 + 1] = (Math.random() - 0.5) * 90; 
+                        positions[i*3 + 2] = (Math.random() - 0.5) * 60; 
+                    }
+                }
+                backgroundParticles.geometry.attributes.position.needsUpdate = true;
+            }
+            
+            const time = Date.now() * 0.001;
+            centerLight.intensity = 1.0 + Math.sin(time * 2) * 0.2; 
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        window.onload = () => {
+            initUI();
+            initThree();
+            try {
+                initMediaPipe(); 
+            } catch(e) {
+                console.error("MediaPipe failed to init", e);
+            }
+            animate();
+        };
+
+    </script>
+</body>
+</html>
